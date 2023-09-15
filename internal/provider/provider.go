@@ -6,7 +6,6 @@ package provider
 import (
 	"context"
 	"github.com/hashicorp/terraform-plugin-framework/path"
-	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/lahabana/terraform-provider-kuma/internal/kumaapi"
 	"os"
 
@@ -96,13 +95,6 @@ func (p *KumaProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 	// Example client configuration for data sources and resources
 	client := kumaapi.NewClient(endpoint, token)
 
-	index, err := client.HeartBeat(ctx)
-	if err != nil {
-		resp.Diagnostics.AddError("failed to heartbeat control-plane", err.Error())
-
-	}
-
-	tflog.Info(ctx, "successfully checked connection", map[string]interface{}{"info": index})
 	if resp.Diagnostics.HasError() {
 		return
 	}

@@ -13,23 +13,24 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/lahabana/terraform-provider-kuma/internal/kumaapi"
 	"strings"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces.
-var _ resource.Resource = &KumaMeshedResource{}
-var _ resource.ResourceWithImportState = &KumaMeshedResource{}
-var _ resource.ResourceWithModifyPlan = &KumaMeshedResource{}
+var _ resource.Resource = &KumaRawResource{}
+var _ resource.ResourceWithImportState = &KumaRawResource{}
+var _ resource.ResourceWithModifyPlan = &KumaRawResource{}
 
 func NewKumaMeshedResource() resource.Resource {
-	return &KumaMeshedResource{}
+	return &KumaRawResource{}
 }
 
-// KumaMeshedResource defines the resource implementation.
-type KumaMeshedResource struct {
-	client  kumaapi.Client
-	typeMap map[string]string
+// KumaRawResource defines the resource implementation.
+type KumaRawResource struct {
+	client   kumaapi.Client
+	metadata kumaapi.Metadata
 }
 
 // KumaMeshedResourceModel describes the resource data model.
@@ -40,11 +41,11 @@ type KumaMeshedResourceModel struct {
 	JsonBody types.String `tfsdk:"json_body"`
 }
 
-func (r *KumaMeshedResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_resource"
+func (r *KumaRawResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_raw_resource"
 }
 
-func (r *KumaMeshedResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+func (r *KumaRawResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	// Skip when deleting
 	if req.Plan.Raw.IsNull() {
 		return
@@ -73,7 +74,7 @@ func (r *KumaMeshedResource) ModifyPlan(ctx context.Context, req resource.Modify
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
 
-func (r *KumaMeshedResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *KumaRawResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
 		MarkdownDescription: "Kuma resource",
@@ -113,13 +114,20 @@ func (r *KumaMeshedResource) Schema(ctx context.Context, req resource.SchemaRequ
 	}
 }
 
-func (r *KumaMeshedResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (r *KumaRawResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	// Prevent panic if the provider has not been configured.
 	if req.ProviderData == nil {
 		return
 	}
 
 	client, ok := req.ProviderData.(kumaapi.Client)
+	metadata, err := client.HeartBeat(ctx)
+	if err != nil {
+		resp.Diagnostics.AddError("failed to heartbeat control-plane", err.Error())
+
+	}
+
+	tflog.Info(ctx, "successfully checked connection", map[string]interface{}{"info": metadata})
 
 	if !ok {
 		resp.Diagnostics.AddError(
@@ -131,21 +139,25 @@ func (r *KumaMeshedResource) Configure(ctx context.Context, req resource.Configu
 	}
 
 	r.client = client
-	r.typeMap = map[string]string{
-		"MeshTrafficPermission": "meshtrafficpermissions",
-	}
+	r.metadata = metadata
 }
 
-func (r *KumaMeshedResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (r *KumaRawResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var data KumaMeshedResourceModel
 
 	// Read Terraform plan data into the model
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &data)...)
 
+	resourcePath := r.metadata.PathForResource(data.Type.ValueString())
+	if resourcePath == "" {
+		resp.Diagnostics.AddError("unsupported resource type", fmt.Sprintf("Resource type '%s' is not supported by the server", data.Type.ValueString()))
+		return
+	}
+
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	res, err := r.client.FetchPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString())
+	res, err := r.client.FetchResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to fetch resource have create, got error: %s", err))
 		return
@@ -155,12 +167,12 @@ func (r *KumaMeshedResource) Create(ctx context.Context, req resource.CreateRequ
 		return
 	}
 
-	err = r.client.PutPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString(), data.JsonBody.ValueString())
+	err = r.client.PutResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString(), data.JsonBody.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to create resource, got error: %s", err))
 		return
 	}
-	res, err = r.client.FetchPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString())
+	res, err = r.client.FetchResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to fetch resource after create, got error: %s", err))
 		return
@@ -193,7 +205,7 @@ func removeTimes(data []byte) ([]byte, error) {
 	return out, nil
 }
 
-func (r *KumaMeshedResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+func (r *KumaRawResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var data KumaMeshedResourceModel
 
 	// Read Terraform prior state data into the model
@@ -202,7 +214,13 @@ func (r *KumaMeshedResource) Read(ctx context.Context, req resource.ReadRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	res, err := r.client.FetchPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString())
+
+	resourcePath := r.metadata.PathForResource(data.Type.ValueString())
+	if resourcePath == "" {
+		resp.Diagnostics.AddError("unsupported resource type", fmt.Sprintf("Resource type '%s' is not supported by the server", data.Type.ValueString()))
+		return
+	}
+	res, err := r.client.FetchResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to read policy, got error: %s", err))
 		return
@@ -220,7 +238,7 @@ func (r *KumaMeshedResource) Read(ctx context.Context, req resource.ReadRequest,
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *KumaMeshedResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (r *KumaRawResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var data KumaMeshedResourceModel
 
 	// Read Terraform plan data into the model
@@ -229,12 +247,17 @@ func (r *KumaMeshedResource) Update(ctx context.Context, req resource.UpdateRequ
 		return
 	}
 
-	err := r.client.PutPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString(), data.JsonBody.ValueString())
+	resourcePath := r.metadata.PathForResource(data.Type.ValueString())
+	if resourcePath == "" {
+		resp.Diagnostics.AddError("unsupported resource type", fmt.Sprintf("Resource type '%s' is not supported by the server", data.Type.ValueString()))
+		return
+	}
+	err := r.client.PutResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString(), data.JsonBody.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to create resource, got error: %s", err))
 		return
 	}
-	res, err := r.client.FetchPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString())
+	res, err := r.client.FetchResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to fetch resource after create, got error: %s", err))
 		return
@@ -255,7 +278,7 @@ func (r *KumaMeshedResource) Update(ctx context.Context, req resource.UpdateRequ
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
-func (r *KumaMeshedResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+func (r *KumaRawResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var data KumaMeshedResourceModel
 
 	// Read Terraform prior state data into the model
@@ -265,7 +288,12 @@ func (r *KumaMeshedResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	out, err := r.client.FetchPolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString())
+	resourcePath := r.metadata.PathForResource(data.Type.ValueString())
+	if resourcePath == "" {
+		resp.Diagnostics.AddError("unsupported resource type", fmt.Sprintf("Resource type '%s' is not supported by the server", data.Type.ValueString()))
+		return
+	}
+	out, err := r.client.FetchResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to read policy, got error: %s", err))
 		return
@@ -275,22 +303,21 @@ func (r *KumaMeshedResource) Delete(ctx context.Context, req resource.DeleteRequ
 		return
 	}
 
-	err = r.client.DeletePolicy(ctx, data.Mesh.ValueString(), r.typeMap[data.Type.ValueString()], data.Name.ValueString())
+	err = r.client.DeleteResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("delete error", fmt.Sprintf("Unable to delete policy, got error: %s", err))
 		return
 	}
 }
 
-func (r *KumaMeshedResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (r *KumaRawResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	parts := strings.Split(strings.Trim(req.ID, "/"), "/")
 	if len(parts) == 2 {
 		parts = append([]string{""}, parts...)
 	}
-	for k, v := range r.typeMap {
-		if v == parts[1] {
-			parts[1] = k
-		}
+	resourceName := r.metadata.ResourceForPath(parts[1])
+	if resourceName != "" {
+		parts[1] = resourceName
 	}
 
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("mesh"), parts[0])...)

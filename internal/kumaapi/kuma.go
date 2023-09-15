@@ -10,14 +10,43 @@ import (
 	"strings"
 )
 
-type IndexResponse struct {
+type Resource struct {
+	Name     string
+	Path     string
+	ReadOnly bool
+	IsPolicy bool
+	IsMeshed bool
+}
+
+type Metadata struct {
+	Resources []Resource
+	Product   string
+	Version   string
+}
+
+func (m *Metadata) ResourceForPath(path string) string {
+	for _, v := range m.Resources {
+		if v.Path == path {
+			return v.Name
+		}
+	}
+	return ""
+}
+
+func (m *Metadata) PathForResource(name string) string {
+	for _, v := range m.Resources {
+		if v.Name == name {
+			return v.Path
+		}
+	}
+	return ""
 }
 
 type Client interface {
-	HeartBeat(ctx context.Context) (IndexResponse, error)
-	FetchPolicy(context.Context, string, string, string) ([]byte, error)
-	PutPolicy(context.Context, string, string, string, string) error
-	DeletePolicy(ctx context.Context, valueString string, s string, valueString2 string) error
+	HeartBeat(ctx context.Context) (Metadata, error)
+	FetchResource(context.Context, string, string, string) ([]byte, error)
+	PutResource(context.Context, string, string, string, string) error
+	DeleteResource(context.Context, string, string, string) error
 }
 
 type ClientImpl struct {
@@ -26,7 +55,7 @@ type ClientImpl struct {
 	token    string
 }
 
-func (c *ClientImpl) DeletePolicy(ctx context.Context, mesh string, resType string, name string) error {
+func (c *ClientImpl) DeleteResource(ctx context.Context, mesh string, resType string, name string) error {
 	path := fmt.Sprintf("/meshes/%s/%s/%s", mesh, resType, name)
 	req, err := c.baseRequest(ctx, http.MethodDelete, path, "")
 	if err != nil {
@@ -62,28 +91,84 @@ func (c *ClientImpl) baseRequest(ctx context.Context, method string, path string
 	return req, nil
 }
 
-func (c *ClientImpl) HeartBeat(ctx context.Context) (IndexResponse, error) {
-	resp := IndexResponse{}
-	req, err := c.baseRequest(ctx, http.MethodGet, "/", "")
+func (c *ClientImpl) HeartBeat(ctx context.Context) (Metadata, error) {
+	resp := Metadata{}
+	index, err := c.index(ctx)
 	if err != nil {
-		return resp, fmt.Errorf("couldn't create heartbeat request error='%w'", err)
+		return resp, fmt.Errorf("failed index request, error=%w", err)
 	}
-	res, err := c.client.Do(req)
+	resp.Product = index["product"].(string)
+	resp.Version = index["version"].(string)
+	resources, err := c.policies(ctx)
 	if err != nil {
-		return IndexResponse{}, err
+		return resp, fmt.Errorf("failed policies request, error=%w", err)
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return resp, fmt.Errorf("invalid http response '%s' for heartbeat request", res.Status)
-	}
-	err = json.NewDecoder(res.Body).Decode(&resp)
-	if err != nil {
-		return resp, fmt.Errorf("failed to decode json for heartbeat request error='%w'", err)
-	}
+	resp.Resources = resources
 	return resp, nil
 }
 
-func (c *ClientImpl) FetchPolicy(ctx context.Context, mesh string, resType string, name string) ([]byte, error) {
+func (c *ClientImpl) index(ctx context.Context) (map[string]interface{}, error) {
+	req, err := c.baseRequest(ctx, http.MethodGet, "/", "")
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("invalid http response '%s'", res.Status)
+	}
+	index := map[string]interface{}{}
+	err = json.NewDecoder(res.Body).Decode(&index)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode json error='%w'", err)
+	}
+	return index, nil
+}
+
+type PolicyResponse struct {
+	Policies []Policy `json:"policies"`
+}
+
+type Policy struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	ReadOnly bool   `json:"readOnly"`
+}
+
+func (c *ClientImpl) policies(ctx context.Context) ([]Resource, error) {
+	req, err := c.baseRequest(ctx, http.MethodGet, "/policies", "")
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("invalid http response '%s'", res.Status)
+	}
+	resp := PolicyResponse{}
+	err = json.NewDecoder(res.Body).Decode(&resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode json error='%w'", err)
+	}
+	var out []Resource
+	for _, v := range resp.Policies {
+		out = append(out, Resource{
+			IsPolicy: true,
+			Path:     v.Path,
+			Name:     v.Name,
+			ReadOnly: v.ReadOnly,
+		})
+	}
+	return out, nil
+}
+
+func (c *ClientImpl) FetchResource(ctx context.Context, mesh string, resType string, name string) ([]byte, error) {
 	path := fmt.Sprintf("/meshes/%s/%s/%s", mesh, resType, name)
 	req, err := c.baseRequest(ctx, http.MethodGet, path, "")
 	if err != nil {
@@ -109,7 +194,7 @@ func (c *ClientImpl) FetchPolicy(ctx context.Context, mesh string, resType strin
 	}
 }
 
-func (c *ClientImpl) PutPolicy(ctx context.Context, mesh string, resType string, name string, entity string) error {
+func (c *ClientImpl) PutResource(ctx context.Context, mesh string, resType string, name string, entity string) error {
 	path := fmt.Sprintf("/meshes/%s/%s/%s", mesh, resType, name)
 	req, err := c.baseRequest(ctx, http.MethodPut, path, entity)
 	if err != nil {
