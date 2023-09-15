@@ -1,6 +1,6 @@
-module github.com/hashicorp/terraform-provider-scaffolding-framework
+module github.com/lahabana/terraform-provider-kuma
 
-go 1.19
+go 1.21
 
 require (
 	github.com/hashicorp/terraform-plugin-docs v0.16.0
