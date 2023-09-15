@@ -50,7 +50,7 @@ jobs:
 
   # Run acceptance tests in a matrix with Terraform CLI versions
   test:
-    name: Terraform Provider Acceptance Tests
+    name: Tests
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -87,6 +87,8 @@ jobs:
             curl -L https://docs.konghq.com/mesh/installer.sh | VERSION=${{ matrix.version}} sh -
             kong-mesh-*/bin/kuma-cp run &
           fi
+        env:
+          GH_TOKEN: {{secrets.GHA_KONG_BOT_READ_TOKEN}}
       - run: go mod download
       - env:
           TF_ACC: "1"
