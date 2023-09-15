@@ -40,9 +40,10 @@ func (p *KumaProvider) Metadata(ctx context.Context, req provider.MetadataReques
 
 func (p *KumaProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		MarkdownDescription: "A provider used to use Terraform to manage Kuma service mesh entities",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
-				MarkdownDescription: "Endpoint to the Global and Standalone Control-plane to use",
+				MarkdownDescription: "Endpoint to the Global or Standalone Control-plane to use",
 				Optional:            false,
 				Required:            true,
 			},

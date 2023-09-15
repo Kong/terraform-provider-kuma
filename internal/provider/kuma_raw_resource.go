@@ -35,10 +35,10 @@ type KumaRawResource struct {
 
 // KumaMeshedResourceModel describes the resource data model.
 type KumaMeshedResourceModel struct {
-	Name     types.String `tfsdk:"name"`
-	Type     types.String `tfsdk:"type"`
-	Mesh     types.String `tfsdk:"mesh"`
-	JsonBody types.String `tfsdk:"json_body"`
+	Name    types.String `tfsdk:"name"`
+	Type    types.String `tfsdk:"type"`
+	Mesh    types.String `tfsdk:"mesh"`
+	RawJson types.String `tfsdk:"raw_json"`
 }
 
 func (r *KumaRawResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -58,7 +58,7 @@ func (r *KumaRawResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	meta := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(plan.JsonBody.ValueString()), &meta); err != nil {
+	if err := json.Unmarshal([]byte(plan.RawJson.ValueString()), &meta); err != nil {
 		resp.Diagnostics.AddError("failed extracting meta", fmt.Sprintf("json parse failed, error: %s", err))
 		return
 	}
@@ -77,17 +77,15 @@ func (r *KumaRawResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 func (r *KumaRawResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		// This description is used by the documentation generator and the language server.
-		MarkdownDescription: "Kuma resource",
+		MarkdownDescription: "This terraform resource can be used for any existing resource in kuma. You just set the raw_json as you would pass it to `kumactl apply -f`.",
 
 		Attributes: map[string]schema.Attribute{
-			// TODO can we have a derived field to have users just use yaml?
-			"json_body": schema.StringAttribute{
+			"raw_json": schema.StringAttribute{
 				MarkdownDescription: "The entity as you would have created it in json format `kumactl apply -f`",
-				Optional:            true,
-				Computed:            true,
+				Required:            true,
 			},
 			"mesh": schema.StringAttribute{
-				MarkdownDescription: "The mesh the resource is part of, if unset it uses `json_body` to extract it",
+				MarkdownDescription: "The mesh the resource is part of, if unset it uses `json_body` to extract it. It is recommended to not set it",
 				Computed:            true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
@@ -96,7 +94,7 @@ func (r *KumaRawResource) Schema(ctx context.Context, req resource.SchemaRequest
 			},
 			"name": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "The name of the resource, if unset it uses `json_body` to extract it",
+				MarkdownDescription: "The name of the resource, if unset it uses `json_body` to extract it. It is recommended to not set it",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
@@ -104,7 +102,7 @@ func (r *KumaRawResource) Schema(ctx context.Context, req resource.SchemaRequest
 			},
 			"type": schema.StringAttribute{
 				Computed:            true,
-				MarkdownDescription: "The type of the resource, if unset it uses `json_body` to extract it",
+				MarkdownDescription: "The type of the resource, if unset it uses `json_body` to extract it. It is recommended to not set it",
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
@@ -167,7 +165,7 @@ func (r *KumaRawResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	err = r.client.PutResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString(), data.JsonBody.ValueString())
+	err = r.client.PutResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString(), data.RawJson.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to create resource, got error: %s", err))
 		return
@@ -186,7 +184,7 @@ func (r *KumaRawResource) Create(ctx context.Context, req resource.CreateRequest
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Failed to normalize resource, get error: %s", err))
 		return
 	}
-	data.JsonBody = types.StringValue(string(out))
+	data.RawJson = types.StringValue(string(out))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -234,7 +232,7 @@ func (r *KumaRawResource) Read(ctx context.Context, req resource.ReadRequest, re
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Failed to normalize resource, get error: %s", err))
 		return
 	}
-	data.JsonBody = types.StringValue(string(out))
+	data.RawJson = types.StringValue(string(out))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -252,7 +250,7 @@ func (r *KumaRawResource) Update(ctx context.Context, req resource.UpdateRequest
 		resp.Diagnostics.AddError("unsupported resource type", fmt.Sprintf("Resource type '%s' is not supported by the server", data.Type.ValueString()))
 		return
 	}
-	err := r.client.PutResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString(), data.JsonBody.ValueString())
+	err := r.client.PutResource(ctx, data.Mesh.ValueString(), resourcePath, data.Name.ValueString(), data.RawJson.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Unable to create resource, got error: %s", err))
 		return
@@ -271,7 +269,7 @@ func (r *KumaRawResource) Update(ctx context.Context, req resource.UpdateRequest
 		resp.Diagnostics.AddError("client Error", fmt.Sprintf("Failed to normalize resource, get error: %s", err))
 		return
 	}
-	data.JsonBody = types.StringValue(string(out))
+	data.RawJson = types.StringValue(string(out))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 
 	// Save updated data into Terraform state
@@ -314,6 +312,10 @@ func (r *KumaRawResource) ImportState(ctx context.Context, req resource.ImportSt
 	parts := strings.Split(strings.Trim(req.ID, "/"), "/")
 	if len(parts) == 2 {
 		parts = append([]string{""}, parts...)
+	}
+	if len(parts) != 3 {
+		resp.Diagnostics.AddError("bad request", "the id of a resource must be of the format: `/<mesh>/<typeOrPath>/<name>` or `/<typeOrPath>/<name>` (this matches the api path of the resource).")
+		return
 	}
 	resourceName := r.metadata.ResourceForPath(parts[1])
 	if resourceName != "" {

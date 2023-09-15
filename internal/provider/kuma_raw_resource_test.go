@@ -17,29 +17,55 @@ func TestAccExampleResource(t *testing.T) {
 		Steps: []resource.TestStep{
 			// Create and Read testing
 			{
-				Config: testAccExampleResourceConfig("one"),
+				Config: localProviderConfig + testAccExampleResourceConfig(`
+type: MeshTrafficPermission
+name: test-1
+mesh: default
+spec:
+  targetRef:
+    kind: Mesh
+  from:
+  - targetRef:
+      kind: Mesh
+    default:
+      action: Allow
+  - targetRef:
+      kind: MeshService
+      name: foo
+    default:
+      action: Deny
+`),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("scaffolding_example.test", "configurable_attribute", "one"),
-					resource.TestCheckResourceAttr("scaffolding_example.test", "defaulted", "example value when not configured"),
-					resource.TestCheckResourceAttr("scaffolding_example.test", "id", "example-id"),
+					resource.TestCheckResourceAttr("kuma_raw_resource.test", "name", "test-1"),
+					resource.TestCheckResourceAttr("kuma_raw_resource.test", "mesh", "default"),
+					resource.TestCheckResourceAttr("kuma_raw_resource.test", "type", "MeshTrafficPermission"),
 				),
 			},
 			// ImportState testing
 			{
-				ResourceName:      "scaffolding_example.test",
-				ImportState:       true,
-				ImportStateVerify: true,
-				// This is not normally necessary, but is here because this
-				// example code does not have an actual upstream service.
-				// Once the Read method is able to refresh information from
-				// the upstream service, this can be removed.
-				ImportStateVerifyIgnore: []string{"configurable_attribute", "defaulted"},
+				ResourceName:                         "kuma_raw_resource.test",
+				ImportState:                          true,
+				ImportStateVerify:                    true,
+				ImportStateId:                        "default/MeshTrafficPermission/test-1",
+				ImportStateVerifyIdentifierAttribute: "name",
 			},
 			// Update and Read testing
 			{
-				Config: testAccExampleResourceConfig("two"),
+				Config: localProviderConfig + testAccExampleResourceConfig(`
+type: MeshTrafficPermission
+name: test-1
+mesh: default
+spec:
+  targetRef:
+    kind: Mesh
+  from:
+  - targetRef:
+      kind: Mesh
+    default:
+      action: Allow
+`),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("scaffolding_example.test", "configurable_attribute", "two"),
+					resource.TestCheckResourceAttr("kuma_raw_resource.test", "raw_json", `{"mesh":"default","name":"test-1","spec":{"from":[{"default":{"action":"Allow"},"targetRef":{"kind":"Mesh"}}],"targetRef":{"kind":"Mesh"}},"type":"MeshTrafficPermission"}`),
 				),
 			},
 			// Delete testing automatically occurs in TestCase
@@ -47,10 +73,13 @@ func TestAccExampleResource(t *testing.T) {
 	})
 }
 
-func testAccExampleResourceConfig(configurableAttribute string) string {
+func testAccExampleResourceConfig(json string) string {
 	return fmt.Sprintf(`
-resource "scaffolding_example" "test" {
-  configurable_attribute = %[1]q
+resource "kuma_raw_resource" "test" {
+  raw_json = jsonencode(yamldecode(<<YAML
+%s
+YAML
+))
 }
-`, configurableAttribute)
+`, json)
 }

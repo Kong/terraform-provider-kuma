@@ -64,6 +64,11 @@ jobs:
           - '1.2.*'
           - '1.3.*'
           - '1.4.*'
+        product:
+          - 'kuma'
+          - 'kong-mesh'
+        version:
+          - 'preview'
     steps:
       - uses: actions/checkout@c85c95e3d7251135ab7dc9ce3241c5835cc595a9 # v3.5.3
       - uses: actions/setup-go@93397bea11091df50f3d7e59dc26a7711a8bcfbe # v4.1.0
@@ -74,6 +79,14 @@ jobs:
         with:
           terraform_version: ${{ matrix.terraform }}
           terraform_wrapper: false
+      - run: |
+          if [[ ${{ matrix.product }} == "kuma" ]]; then
+            curl -L https://kuma.io/installer.sh | VERSION=${{ matrix.version }} sh -
+            kuma-*/bin/kuma-cp run &
+          else
+            curl -L https://docs.konghq.com/mesh/installer.sh | VERSION=${{ matrix.version}} sh -
+            kong-mesh-*/bin/kuma-cp run &
+          fi
       - run: go mod download
       - env:
           TF_ACC: "1"

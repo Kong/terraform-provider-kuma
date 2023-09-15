@@ -12,13 +12,15 @@ variable "kuma_token" {
 
 provider "kuma" {
   # example configuration here
-  # endpoint = "http://localhost:5681"
-  endpoint = "https://us.api.konghq.com/v0/mesh/control-planes/5637a856-a9b1-40db-b046-d5b16cccb1e2/api"
-  token = var.kuma_token
+  endpoint = "http://localhost:5681"
+  # For Konnect you could use something like
+  # endpoint = "https://us.api.konghq.com/v0/mesh/control-planes/<cpId>/api"
+  # Set the variable using `TF_VAR_kuma_token`
+  # token    = var.kuma_token
 }
 
 resource "kuma_raw_resource" "example" {
-  json_body = jsonencode(yamldecode(<<YAML
+  raw_json = jsonencode(yamldecode(<<YAML
 type: MeshTrafficPermission
 name: foo
 mesh: default
@@ -36,11 +38,11 @@ spec:
     default:
       action: Deny
 YAML
-))
+  ))
 }
 
 resource "kuma_raw_resource" "other_example" {
-  json_body = jsonencode(yamldecode(<<YAML
+  raw_json = jsonencode(yamldecode(<<YAML
 type: MeshTrafficPermission
 name: bar
 mesh: default
@@ -58,19 +60,19 @@ spec:
     default:
       action: Deny
 YAML
-))
+  ))
 }
 
 resource "kuma_raw_resource" "tracing" {
-  json_body = jsonencode({
-    type="TrafficTrace"
-    mesh="default"
-    name="trace-all-traffic"
-    selectors=[{
-      match={"kuma.io/service": "*"}
+  raw_json = jsonencode({
+    type = "TrafficTrace"
+    mesh = "default"
+    name = "trace-all-traffic"
+    selectors = [{
+      match = { "kuma.io/service" : "*" }
     }]
-    conf={
-        backend="jaeger-collector"
+    conf = {
+      backend = "jaeger-collector"
     }
-})
+  })
 }
