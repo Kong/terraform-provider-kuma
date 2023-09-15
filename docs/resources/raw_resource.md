@@ -16,7 +16,7 @@ This terraform resource can be used for any existing resource in kuma. You just 
 terraform {
   required_providers {
     kuma = {
-      source = "registry.terraform.io/lahabana/kuma"
+      source = "registry.terraform.io/kong/kuma"
     }
   }
 }

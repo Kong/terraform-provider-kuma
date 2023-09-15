@@ -5,8 +5,8 @@ package provider
 
 import (
 	"context"
+	"github.com/Kong/terraform-provider-kuma/internal/kumaapi"
 	"github.com/hashicorp/terraform-plugin-framework/path"
-	"github.com/lahabana/terraform-provider-kuma/internal/kumaapi"
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
