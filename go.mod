@@ -1,4 +1,4 @@
-module github.com/lahabana/terraform-provider-kuma
+module github.com/Kong/terraform-provider-kuma
 
 go 1.21
 

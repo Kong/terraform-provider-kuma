@@ -16,7 +16,7 @@ A provider used to use Terraform to manage Kuma service mesh entities
 terraform {
   required_providers {
     kuma = {
-      source = "registry.terraform.io/lahabana/kuma"
+      source = "registry.terraform.io/kong/kuma"
     }
   }
 }
