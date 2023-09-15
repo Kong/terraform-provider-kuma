@@ -97,8 +97,12 @@ func (c *ClientImpl) HeartBeat(ctx context.Context) (Metadata, error) {
 	if err != nil {
 		return resp, fmt.Errorf("failed index request, error=%w", err)
 	}
-	resp.Product = index["product"].(string)
-	resp.Version = index["version"].(string)
+	if r, ok := index["product"].(string); ok {
+		resp.Product = r
+	}
+	if r, ok := index["version"].(string); ok {
+		resp.Version = r
+	}
 	resources, err := c.policies(ctx)
 	if err != nil {
 		return resp, fmt.Errorf("failed policies request, error=%w", err)

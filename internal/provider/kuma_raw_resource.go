@@ -62,14 +62,14 @@ func (r *KumaRawResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		resp.Diagnostics.AddError("failed extracting meta", fmt.Sprintf("json parse failed, error: %s", err))
 		return
 	}
-	if v, ok := meta["name"]; ok {
-		plan.Name = types.StringValue(v.(string))
+	if v, ok := meta["name"].(string); ok {
+		plan.Name = types.StringValue(v)
 	}
-	if v, ok := meta["type"]; ok {
-		plan.Type = types.StringValue(v.(string))
+	if v, ok := meta["type"].(string); ok {
+		plan.Type = types.StringValue(v)
 	}
-	if v, ok := meta["mesh"]; ok {
-		plan.Mesh = types.StringValue(v.(string))
+	if v, ok := meta["mesh"].(string); ok {
+		plan.Mesh = types.StringValue(v)
 	}
 	resp.Diagnostics.Append(resp.Plan.Set(ctx, &plan)...)
 }
